@@ -1,0 +1,76 @@
+default:
+  image: node:16
+  cache:
+    - key:
+        files:
+          - package-lock.json
+      paths:
+        - .npm/
+
+stages:
+  - build
+  - test-setup
+  - test
+  - test-complete
+  - deploy
+
+build:
+  stage: build
+  script:
+    - echo "Building .."
+
+test-setup:
+  stage: test-setup
+  script:
+    - npm ci --cache .npm --prefer-offline
+
+    # Optionally add a couple of fields such as the git hash and link to the build
+    - npx testmo automation:resources:add-field --name git --type string
+        --value $CI_COMMIT_SHORT_SHA --resources resources.json
+    - npx testmo automation:resources:add-link --name build
+        --url $CI_PIPELINE_URL --resources resources.json
+
+    - npx testmo automation:run:create
+        --instance $TESTMO_URL
+        --project-id 1
+        --name "Parallel mocha test run"
+        --resources resources.json
+        --source "unit-tests" > testmo-run-id.txt
+    - echo "TESTMO_RUN_ID=$(cat testmo-run-id.txt)" > testmo.env
+  artifacts:
+    reports:
+      dotenv: testmo.env
+
+test:
+  parallel: 4
+  stage: test
+  script:
+    - npm ci --cache .npm --prefer-offline
+    - npx testmo automation:run:submit-thread
+        --instance $TESTMO_URL
+        --run-id $TESTMO_RUN_ID
+        --results results/*.xml
+        -- npm run mocha-junit-parallel # Note space after --
+  artifacts:
+    when: always
+    reports:
+      junit:
+        - results/mocha-test-results.xml
+  dependencies:
+    - test-setup
+
+test-complete:
+  stage: test-complete
+  script:
+    - npm ci --cache .npm --prefer-offline
+    - npx testmo automation:run:complete
+        --instance $TESTMO_URL
+        --run-id $TESTMO_RUN_ID
+  dependencies:
+    - test-setup
+  when: always
+
+deploy:
+  stage: deploy
+  script:
+    - echo "Deploying .."
