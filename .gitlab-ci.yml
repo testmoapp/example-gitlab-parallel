@@ -1,5 +1,5 @@
 default:
-  image: node:16
+  image: node:19
   cache:
     - key:
         files:
@@ -30,8 +30,21 @@ test-setup:
     - npx testmo automation:resources:add-link --name build
         --url $CI_PIPELINE_URL --resources resources.json
 
+    # Check if the required variables are available
+    - >
+        if [[ -z "${TESTMO_URL}" ]]; then
+          echo "The TESTMO_URL secret is not defined for this repository"
+          exit 1
+        fi
+
+        if [[ -z "${TESTMO_TOKEN}" ]]; then
+          echo "The TESTMO_TOKEN secret is not defined for this repository"
+          exit 1
+        fi
+
+    # Create test run
     - npx testmo automation:run:create
-        --instance $TESTMO_URL
+        --instance "$TESTMO_URL"
         --project-id 1
         --name "Parallel mocha test run"
         --resources resources.json
@@ -46,9 +59,11 @@ test:
   stage: test
   script:
     - npm ci --cache .npm --prefer-offline
+
+    # Run automated tests and report results to Testmo
     - npx testmo automation:run:submit-thread
-        --instance $TESTMO_URL
-        --run-id $TESTMO_RUN_ID
+        --instance "$TESTMO_URL"
+        --run-id "$TESTMO_RUN_ID"
         --results results/*.xml
         -- npm run mocha-junit-parallel # Note space after --
   artifacts:
@@ -63,9 +78,11 @@ test-complete:
   stage: test-complete
   script:
     - npm ci --cache .npm --prefer-offline
+
+    # Mark test run completed
     - npx testmo automation:run:complete
-        --instance $TESTMO_URL
-        --run-id $TESTMO_RUN_ID
+        --instance "$TESTMO_URL"
+        --run-id "$TESTMO_RUN_ID"
   dependencies:
     - test-setup
   when: always
